@@ -54,9 +54,11 @@ import Layout from '../layouts/Layout.astro';
       <div class="md:col-span-2 p-6 bg-white/70 backdrop-blur-sm rounded-2xl shadow-sm border border-plum-100">
         <h3 class="text-sm font-semibold text-plum-400 uppercase tracking-wide mb-4">共同心愿</h3>
         <ul id="wishlist" class="space-y-2.5 text-sm text-plum-700">
-          <li class="flex items-center gap-2"><span class="w-4 h-4 rounded border border-plum-200 flex-shrink-0"></span>一起去冰岛看极光</li>
-          <li class="flex items-center gap-2"><span class="w-4 h-4 rounded border border-plum-200 flex-shrink-0"></span>养一只猫</li>
-          <li class="flex items-center gap-2"><span class="w-4 h-4 rounded border border-plum-200 flex-shrink-0"></span>拍一组情侣写真</li>
+          <li class="flex items-center gap-2"><span class="w-4 h-4 rounded border border-plum-200 flex-shrink-0"></span>长白山-长相守，共白头</li>
+          <li class="flex items-center gap-2"><span class="w-4 h-4 rounded border border-plum-200 flex-shrink-0"></span>徐州逛吃嘻嘻</li>
+          <li class="flex items-center gap-2"><span class="w-4 h-4 rounded border border-plum-200 flex-shrink-0"></span>买花，做成冰箱贴~</li>
+          <li class="flex items-center gap-2"><span class="w-4 h-4 rounded border border-plum-200 flex-shrink-0"></span>坐一次双层火车的大床卧铺，去大理</li>
+          <li class="flex items-center gap-2"><span class="w-4 h-4 rounded border border-plum-200 flex-shrink-0"></span>每年都要拍一张红底照片！</li>
         </ul>
       </div>
     </div>
@@ -67,7 +69,32 @@ import Layout from '../layouts/Layout.astro';
   <dialog id="meet-dialog" class="rounded-2xl p-6 shadow-xl border border-plum-100 backdrop:bg-black/30">
     <form method="dialog" class="space-y-4">
       <h3 class="text-lg font-semibold text-plum-900">设置下次见面日期</h3>
-      <input type="datetime-local" id="meet-date-input" class="w-full px-4 py-2.5 rounded-xl border border-plum-200 text-plum-900 focus:outline-none focus:border-lavender-400" />
+      <div class="grid grid-cols-3 gap-2">
+        <label class="field">
+          <span class="text-xs text-plum-400">年</span>
+          <select id="meet-year" class="w-full px-3 py-2 rounded-xl border border-plum-200 text-plum-900 focus:outline-none focus:border-lavender-400">
+            <option value="2026">2026</option><option value="2027">2027</option><option value="2028">2028</option>
+          </select>
+        </label>
+        <label class="field">
+          <span class="text-xs text-plum-400">月</span>
+          <select id="meet-month" class="w-full px-3 py-2 rounded-xl border border-plum-200 text-plum-900 focus:outline-none focus:border-lavender-400"></select>
+        </label>
+        <label class="field">
+          <span class="text-xs text-plum-400">日</span>
+          <select id="meet-day" class="w-full px-3 py-2 rounded-xl border border-plum-200 text-plum-900 focus:outline-none focus:border-lavender-400"></select>
+        </label>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <label class="field">
+          <span class="text-xs text-plum-400">时</span>
+          <select id="meet-hour" class="w-full px-3 py-2 rounded-xl border border-plum-200 text-plum-900 focus:outline-none focus:border-lavender-400"></select>
+        </label>
+        <label class="field">
+          <span class="text-xs text-plum-400">分</span>
+          <select id="meet-minute" class="w-full px-3 py-2 rounded-xl border border-plum-200 text-plum-900 focus:outline-none focus:border-lavender-400"></select>
+        </label>
+      </div>
       <div class="flex gap-3">
         <button type="submit" id="meet-save" class="flex-1 px-4 py-2.5 bg-lavender-500 text-white rounded-xl font-medium hover:bg-lavender-600 transition-colors">保存</button>
         <button type="submit" id="meet-cancel" class="px-4 py-2.5 text-plum-500 rounded-xl font-medium hover:bg-plum-50 transition-colors">取消</button>
@@ -76,7 +103,7 @@ import Layout from '../layouts/Layout.astro';
   </dialog>
 
   <script>
-    const TOGETHER_START = new Date('2025-01-25T00:00:00+08:00').getTime();
+    const TOGETHER_START = new Date('2026-01-25T21:24:00+08:00').getTime();
     const MEET_KEY = 'luckyrong_meet_date';
 
     function pad(n) { return String(n).padStart(2, '0'); }
@@ -119,19 +146,34 @@ import Layout from '../layouts/Layout.astro';
     // 见面日期弹窗
     const dialog = document.getElementById('meet-dialog');
     const meetCounter = document.getElementById('meet-counter');
-    const meetInput = document.getElementById('meet-date-input');
     const meetSave = document.getElementById('meet-save');
+    const meetYear = document.getElementById('meet-year');
+    const meetMonth = document.getElementById('meet-month');
+    const meetDay = document.getElementById('meet-day');
+    const meetHour = document.getElementById('meet-hour');
+    const meetMinute = document.getElementById('meet-minute');
+
+    for (let i = 1; i <= 12; i++) meetMonth.innerHTML += `<option value="${i}">${i}月</option>`;
+    for (let i = 1; i <= 31; i++) meetDay.innerHTML += `<option value="${i}">${i}日</option>`;
+    for (let i = 0; i < 24; i++) meetHour.innerHTML += `<option value="${i}">${pad(i)}时</option>`;
+    for (let i = 0; i < 60; i += 5) meetMinute.innerHTML += `<option value="${i}">${pad(i)}分</option>`;
 
     meetCounter.addEventListener('click', () => {
       const saved = localStorage.getItem(MEET_KEY);
-      if (saved) meetInput.value = saved.slice(0, 16);
+      if (saved) {
+        const d = new Date(saved);
+        meetYear.value = d.getFullYear();
+        meetMonth.value = d.getMonth() + 1;
+        meetDay.value = d.getDate();
+        meetHour.value = d.getHours();
+        meetMinute.value = Math.floor(d.getMinutes() / 5) * 5;
+      }
       dialog.showModal();
     });
 
-    meetSave.addEventListener('click', (e) => {
-      if (meetInput.value) {
-        localStorage.setItem(MEET_KEY, meetInput.value);
-      }
+    meetSave.addEventListener('click', () => {
+      const dt = new Date(Number(meetYear.value), Number(meetMonth.value) - 1, Number(meetDay.value), Number(meetHour.value), Number(meetMinute.value));
+      localStorage.setItem(MEET_KEY, dt.toISOString());
     });
 
     updateClocks();
