@@ -6,3 +6,11 @@ workers_dev = false
 routes = [
   { pattern = "luckyrong.ysoseri.us/*", zone_name = "ysoseri.us" }
 ]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "together-time"
+database_id = "9d9f2d28-d04d-41bb-91f0-d0d4a055ae3e"
+
+[vars]
+JWT_SECRET = "together-time-luckyrong-2026"
