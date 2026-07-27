@@ -170,11 +170,50 @@ async function handleApi(request, env, path) {
   return jsonResponse({ error: 'not found' }, 404);
 }
 
+// --- GITHUB COMMITS PROXY (CF Cache, 5 min TTL) ---
+
+async function handleCommits(request, env) {
+  const cacheUrl = new URL('https://ysoseri.us/api/commits');
+  const cache = caches.default;
+  let resp = await cache.match(cacheUrl);
+  if (resp) return resp;
+
+  const headers = { 'User-Agent': 'ysoseri-homepage', 'Accept': 'application/vnd.github+json' };
+  if (env.GITHUB_TOKEN) headers['Authorization'] = `Bearer ${env.GITHUB_TOKEN}`;
+
+  const gh = await fetch('https://api.github.com/users/Ysoseri1224/events?per_page=30', { headers });
+  if (!gh.ok) {
+    return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
+  }
+
+  const events = await gh.json();
+  const commits = [];
+  for (const ev of events) {
+    if (ev.type !== 'PushEvent') continue;
+    for (const c of (ev.payload?.commits || [])) {
+      commits.push({ msg: c.message.split('\n')[0], repo: ev.repo.name.split('/')[1], time: ev.created_at });
+      if (commits.length >= 4) break;
+    }
+    if (commits.length >= 4) break;
+  }
+
+  resp = new Response(JSON.stringify(commits), {
+    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=300' },
+  });
+  resp.headers.append('Cache-Control', 's-maxage=300');
+  await cache.put(cacheUrl, resp.clone());
+  return resp;
+}
+
 // --- MAIN ROUTER ---
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    if (url.pathname === '/api/commits' && request.method === 'GET') {
+      return handleCommits(request, env);
+    }
 
     if (url.pathname.startsWith('/together/api')) {
       return handleApi(request, env, url.pathname);
