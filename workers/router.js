@@ -173,7 +173,7 @@ async function handleApi(request, env, path) {
 // --- GITHUB COMMITS PROXY (CF Cache, 5 min TTL) ---
 
 async function handleCommits(request, env) {
-  const cacheUrl = new URL('https://ysoseri.us/api/commits');
+  const cacheUrl = new URL('https://ysoseri.us/api/commits?v=2');
   const cache = caches.default;
   let resp = await cache.match(cacheUrl);
   if (resp) return resp;
@@ -181,26 +181,21 @@ async function handleCommits(request, env) {
   const headers = { 'User-Agent': 'ysoseri-homepage', 'Accept': 'application/vnd.github+json' };
   if (env.GITHUB_TOKEN) headers['Authorization'] = `Bearer ${env.GITHUB_TOKEN}`;
 
-  const gh = await fetch('https://api.github.com/users/Ysoseri1224/events?per_page=30', { headers });
+  const gh = await fetch('https://api.github.com/search/commits?q=author:Ysoseri1224&sort=author-date&order=desc&per_page=4', { headers });
   if (!gh.ok) {
     return new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } });
   }
 
-  const events = await gh.json();
-  const commits = [];
-  for (const ev of events) {
-    if (ev.type !== 'PushEvent') continue;
-    for (const c of (ev.payload?.commits || [])) {
-      commits.push({ msg: c.message.split('\n')[0], repo: ev.repo.name.split('/')[1], time: ev.created_at });
-      if (commits.length >= 4) break;
-    }
-    if (commits.length >= 4) break;
-  }
+  const data = await gh.json();
+  const commits = (data.items || []).map(item => ({
+    msg: item.commit.message.split('\n')[0],
+    repo: item.repository.name,
+    time: item.commit.author.date,
+  }));
 
   resp = new Response(JSON.stringify(commits), {
-    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, max-age=300' },
+    headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'public, s-maxage=300, max-age=300' },
   });
-  resp.headers.append('Cache-Control', 's-maxage=300');
   await cache.put(cacheUrl, resp.clone());
   return resp;
 }
