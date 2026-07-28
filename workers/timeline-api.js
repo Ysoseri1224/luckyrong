@@ -516,7 +516,8 @@ async function serveMedia(request, env, encodedKey) {
     throw new HttpError(400, '媒体路径无效');
   }
   if (!key.startsWith('timeline/') || key.includes('..')) throw new HttpError(400, '媒体路径无效');
-  const object = await env.TIMELINE_MEDIA.get(key, { range: request.headers });
+  const rangeRequested = request.headers.has('Range');
+  const object = await env.TIMELINE_MEDIA.get(key, rangeRequested ? { range: request.headers } : undefined);
   if (!object) throw new HttpError(404, '媒体不存在');
   const headers = new Headers(timelineHeaders({
     'Cache-Control': object.httpMetadata?.cacheControl || 'public, max-age=86400',
@@ -525,7 +526,7 @@ async function serveMedia(request, env, encodedKey) {
   }));
   object.writeHttpMetadata(headers);
   let status = 200;
-  if (object.range) {
+  if (rangeRequested && object.range) {
     let offset = null;
     let length = null;
     if ('offset' in object.range && object.range.length !== undefined) {
