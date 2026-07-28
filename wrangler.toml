@@ -13,5 +13,14 @@ binding = "DB"
 database_name = "together-time"
 database_id = "9d9f2d28-d04d-41bb-91f0-d0d4a055ae3e"
 
+[[d1_databases]]
+binding = "TIMELINE_DB"
+database_name = "timeline"
+database_id = "5c8f922d-a683-4888-b1a6-21a8603b111c"
+
+[[r2_buckets]]
+binding = "TIMELINE_MEDIA"
+bucket_name = "timeline-media"
+
 [vars]
 JWT_SECRET = "together-time-luckyrong-2026"

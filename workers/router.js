@@ -1,3 +1,5 @@
+import { handleTimelineApi } from './timeline-api.js';
+
 function base64url(str) {
   return btoa(unescape(encodeURIComponent(str))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
 }
@@ -212,6 +214,21 @@ export default {
 
     if (url.pathname.startsWith('/together/api')) {
       return handleApi(request, env, url.pathname);
+    }
+
+    if (url.pathname.startsWith('/timeline/api')) {
+      return handleTimelineApi(request, env);
+    }
+
+    if (url.pathname === '/timeline') {
+      return Response.redirect(`${url.origin}/timeline/${url.search}`, 308);
+    }
+
+    if (url.pathname.startsWith('/timeline/')) {
+      const path = url.pathname.slice('/timeline'.length) || '/';
+      const targetUrl = `https://timeline-7z2.pages.dev${path}${url.search}`;
+      const response = await fetch(targetUrl, { method: request.method, headers: request.headers });
+      return new Response(response.body, { status: response.status, headers: response.headers });
     }
 
     if (url.pathname.startsWith('/together')) {
