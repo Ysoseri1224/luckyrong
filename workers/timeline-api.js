@@ -200,6 +200,16 @@ function parseAxisIds(value) {
   return ids;
 }
 
+function parseAxisOrder(value) {
+  if (!Array.isArray(value)) throw new HttpError(400, '轴顺序格式无效');
+  const ids = value.map(Number);
+  if (ids.length === 0 || ids.length > 30 || ids.some((id) => !Number.isInteger(id) || id <= 0)) {
+    throw new HttpError(400, '轴顺序格式无效');
+  }
+  if (new Set(ids).size !== ids.length) throw new HttpError(400, '轴顺序不能包含重复项');
+  return ids;
+}
+
 function canonicalMediaUrl(key) {
   return `/timeline/api/media/${encodeURIComponent(key)}`;
 }
@@ -292,10 +302,23 @@ function serializeEvent(row, axisIds) {
   };
 }
 
+function serializeAxis(row) {
+  return {
+    ...row,
+    is_primary: Boolean(row.is_primary),
+  };
+}
+
 async function loadEvent(env, eventId) {
   const row = await env.TIMELINE_DB.prepare('SELECT * FROM timeline_events WHERE id = ?').bind(eventId).first();
   if (!row) return null;
-  const axesResult = await env.TIMELINE_DB.prepare('SELECT axis_id FROM timeline_event_axes WHERE event_id = ? ORDER BY axis_id')
+  const axesResult = await env.TIMELINE_DB.prepare(`
+    SELECT relation.axis_id
+    FROM timeline_event_axes AS relation
+    JOIN timeline_axes AS axis ON axis.id = relation.axis_id
+    WHERE relation.event_id = ?
+    ORDER BY axis.sort_order, axis.id
+  `)
     .bind(eventId)
     .all();
   return serializeEvent(row, (axesResult.results || []).map((item) => item.axis_id));
@@ -303,7 +326,7 @@ async function loadEvent(env, eventId) {
 
 async function getAxes(env) {
   const result = await env.TIMELINE_DB.prepare('SELECT * FROM timeline_axes ORDER BY sort_order, id').all();
-  return jsonResponse({ axes: result.results || [] });
+  return jsonResponse({ axes: (result.results || []).map(serializeAxis) });
 }
 
 async function createAxis(request, env) {
@@ -316,7 +339,7 @@ async function createAxis(request, env) {
       VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
     `).bind(draft.name, draft.color, draft.sortOrder, draft.parentAxisId, draft.startDate, draft.endDate, draft.mergeAxisId).run();
     const axis = await env.TIMELINE_DB.prepare('SELECT * FROM timeline_axes WHERE id = ?').bind(result.meta.last_row_id).first();
-    return jsonResponse({ axis }, 201);
+    return jsonResponse({ axis: serializeAxis(axis) }, 201);
   } catch (error) {
     if (String(error).includes('UNIQUE')) throw new HttpError(409, '已经有同名的轴');
     throw error;
@@ -325,9 +348,12 @@ async function createAxis(request, env) {
 
 async function updateAxis(request, env, axisId) {
   await requireEditor(request, env);
-  const existing = await env.TIMELINE_DB.prepare('SELECT id FROM timeline_axes WHERE id = ?').bind(axisId).first();
+  const existing = await env.TIMELINE_DB.prepare('SELECT id, is_primary FROM timeline_axes WHERE id = ?').bind(axisId).first();
   if (!existing) throw new HttpError(404, '事件轴不存在');
   const draft = axisDraft(await readJson(request));
+  if (existing.is_primary && (draft.parentAxisId || draft.startDate || draft.endDate || draft.mergeAxisId)) {
+    throw new HttpError(400, '主轴必须贯穿整条时间轴，不能设置分支或生命周期');
+  }
   await ensureAxisReferences(env, draft, axisId);
   try {
     await env.TIMELINE_DB.prepare(`
@@ -336,7 +362,7 @@ async function updateAxis(request, env, axisId) {
       WHERE id = ?
     `).bind(draft.name, draft.color, draft.sortOrder, draft.parentAxisId, draft.startDate, draft.endDate, draft.mergeAxisId, axisId).run();
     const axis = await env.TIMELINE_DB.prepare('SELECT * FROM timeline_axes WHERE id = ?').bind(axisId).first();
-    return jsonResponse({ axis });
+    return jsonResponse({ axis: serializeAxis(axis) });
   } catch (error) {
     if (String(error).includes('UNIQUE')) throw new HttpError(409, '已经有同名的轴');
     throw error;
@@ -345,6 +371,9 @@ async function updateAxis(request, env, axisId) {
 
 async function removeAxis(request, env, axisId) {
   await requireEditor(request, env);
+  const axis = await env.TIMELINE_DB.prepare('SELECT is_primary FROM timeline_axes WHERE id = ?').bind(axisId).first();
+  if (!axis) throw new HttpError(404, '事件轴不存在');
+  if (axis.is_primary) throw new HttpError(409, '主轴不能删除');
   const relationCount = await env.TIMELINE_DB.prepare('SELECT COUNT(*) AS count FROM timeline_event_axes WHERE axis_id = ?')
     .bind(axisId)
     .first('count');
@@ -357,6 +386,25 @@ async function removeAxis(request, env, axisId) {
   const deleted = Number(result[2]?.meta?.changes || 0);
   if (!deleted) throw new HttpError(404, '事件轴不存在');
   return jsonResponse({ ok: true });
+}
+
+async function reorderAxes(request, env) {
+  await requireEditor(request, env);
+  const body = await readJson(request);
+  const axisIds = parseAxisOrder(body.axis_ids);
+  const existing = await env.TIMELINE_DB.prepare('SELECT id FROM timeline_axes ORDER BY sort_order, id').all();
+  const existingIds = (existing.results || []).map((axis) => Number(axis.id));
+  const requestedIds = new Set(axisIds);
+  if (existingIds.length !== axisIds.length || existingIds.some((axisId) => !requestedIds.has(axisId))) {
+    throw new HttpError(400, '轴顺序必须包含全部现有轴');
+  }
+  const statement = env.TIMELINE_DB.prepare(`
+    UPDATE timeline_axes
+    SET sort_order = ?, updated_at = datetime('now')
+    WHERE id = ?
+  `);
+  await env.TIMELINE_DB.batch(axisIds.map((axisId, index) => statement.bind(index, axisId)));
+  return getAxes(env);
 }
 
 function decodeCursor(value) {
@@ -388,9 +436,11 @@ async function getEvents(request, env) {
   if (rows.length > 0) {
     const placeholders = rows.map(() => '?').join(', ');
     const relations = await env.TIMELINE_DB.prepare(`
-      SELECT event_id, axis_id FROM timeline_event_axes
-      WHERE event_id IN (${placeholders})
-      ORDER BY event_id, axis_id
+      SELECT relation.event_id, relation.axis_id
+      FROM timeline_event_axes AS relation
+      JOIN timeline_axes AS axis ON axis.id = relation.axis_id
+      WHERE relation.event_id IN (${placeholders})
+      ORDER BY relation.event_id, axis.sort_order, axis.id
     `).bind(...rows.map((row) => row.id)).all();
     for (const relation of relations.results || []) {
       const list = axisMap.get(relation.event_id) || [];
@@ -570,6 +620,9 @@ async function routeTimelineApi(request, env) {
     if (request.method === 'GET') return getAxes(env);
     if (request.method === 'POST') return createAxis(request, env);
     return methodNotAllowed();
+  }
+  if (path === '/timeline/api/axes/order') {
+    return request.method === 'PUT' ? reorderAxes(request, env) : methodNotAllowed();
   }
   const axisMatch = path.match(/^\/timeline\/api\/axes\/(\d+)$/);
   if (axisMatch) {
