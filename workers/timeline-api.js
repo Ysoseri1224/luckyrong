@@ -1,5 +1,5 @@
 const TIMELINE_ORIGIN = 'https://luckyrong.ysoseri.us';
-const EVENT_TYPES = new Set(['text', 'photo', 'video', 'milestone']);
+const EVENT_TYPES = new Set(['entry', 'milestone']);
 const MEDIA_CONTENT_TYPES = new Map([
   ['image/jpeg', { type: 'image', extension: 'jpg' }],
   ['image/png', { type: 'image', extension: 'png' }],
@@ -258,6 +258,11 @@ function axisDraft(body) {
 
 function eventDraft(body) {
   if (!EVENT_TYPES.has(body.type)) throw new HttpError(400, '事件类型无效');
+  const media = parseMedia(body.media ?? []);
+  const requestedCoverKey = optionalString(body.cover_media_key, '封面媒体 key', 260);
+  if (requestedCoverKey && !media.some((item) => item.key === requestedCoverKey)) {
+    throw new HttpError(400, '封面必须来自当前事件的媒体清单');
+  }
   return {
     type: body.type,
     title: requiredString(body.title, '标题', 120),
@@ -265,7 +270,8 @@ function eventDraft(body) {
     description: optionalString(body.description, '正文', 8000),
     eventDate: dateString(body.event_date, '事件日期'),
     color: colorString(body.color, '节点颜色', true),
-    media: parseMedia(body.media ?? []),
+    media,
+    coverMediaKey: requestedCoverKey || media[0]?.key || null,
     axisIds: parseAxisIds(body.axis_ids),
   };
 }
@@ -295,9 +301,15 @@ async function ensureAxisReferences(env, draft, currentId = null) {
 }
 
 function serializeEvent(row, axisIds) {
+  const media = parseStoredMedia(row.media);
+  const coverMediaKey = media.some((item) => item.key === row.cover_media_key)
+    ? row.cover_media_key
+    : media[0]?.key || null;
   return {
     ...row,
-    media: parseStoredMedia(row.media),
+    type: row.type === 'milestone' ? 'milestone' : 'entry',
+    media,
+    cover_media_key: coverMediaKey,
     axis_ids: axisIds,
   };
 }
@@ -459,9 +471,18 @@ async function createEvent(request, env) {
   const draft = eventDraft(await readJson(request));
   await ensureAxesExist(env, draft.axisIds);
   const result = await env.TIMELINE_DB.prepare(`
-    INSERT INTO timeline_events (type, title, subtitle, description, event_date, color, media, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))
-  `).bind(draft.type, draft.title, draft.subtitle, draft.description, draft.eventDate, draft.color, JSON.stringify(draft.media)).run();
+    INSERT INTO timeline_events (type, title, subtitle, description, event_date, color, media, cover_media_key, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))
+  `).bind(
+    draft.type,
+    draft.title,
+    draft.subtitle,
+    draft.description,
+    draft.eventDate,
+    draft.color,
+    JSON.stringify(draft.media),
+    draft.coverMediaKey,
+  ).run();
   const eventId = Number(result.meta.last_row_id);
   await env.TIMELINE_DB.batch(
     draft.axisIds.map((axisId) => env.TIMELINE_DB.prepare('INSERT INTO timeline_event_axes (event_id, axis_id) VALUES (?, ?)').bind(eventId, axisId)),
@@ -478,9 +499,19 @@ async function updateEvent(request, env, eventId) {
   const statements = [
     env.TIMELINE_DB.prepare(`
       UPDATE timeline_events
-      SET type = ?, title = ?, subtitle = ?, description = ?, event_date = ?, color = ?, media = ?, updated_at = datetime('now')
+      SET type = ?, title = ?, subtitle = ?, description = ?, event_date = ?, color = ?, media = ?, cover_media_key = ?, updated_at = datetime('now')
       WHERE id = ?
-    `).bind(draft.type, draft.title, draft.subtitle, draft.description, draft.eventDate, draft.color, JSON.stringify(draft.media), eventId),
+    `).bind(
+      draft.type,
+      draft.title,
+      draft.subtitle,
+      draft.description,
+      draft.eventDate,
+      draft.color,
+      JSON.stringify(draft.media),
+      draft.coverMediaKey,
+      eventId,
+    ),
     env.TIMELINE_DB.prepare('DELETE FROM timeline_event_axes WHERE event_id = ?').bind(eventId),
     ...draft.axisIds.map((axisId) => env.TIMELINE_DB.prepare('INSERT INTO timeline_event_axes (event_id, axis_id) VALUES (?, ?)').bind(eventId, axisId)),
   ];
