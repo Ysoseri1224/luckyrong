@@ -120,13 +120,20 @@
 .next-hms { margin-left: 4px; color: var(--ruby-400); font-size: 20px; font-weight: 300; font-variant-numeric: tabular-nums; }
 .next-meet:hover .next-days { color: var(--ruby-700); }
 
-.section-toggle {
+.section-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  width: 100%;
+}
+
+.section-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
   margin: 0;
-  padding: 0;
+  padding: 8px;
   border: 0;
   background: transparent;
   color: inherit;
@@ -135,11 +142,14 @@
 }
 
 .section-toggle-title {
-  color: var(--ruby-g900);
+  color: var(--ruby-600);
   font-family: var(--ruby-serif);
   font-size: 15px;
   font-weight: 500;
+  text-decoration: none;
 }
+
+.section-toggle-title:hover { color: var(--ruby-700); }
 
 .section-toggle-icon {
   width: 16px;
@@ -312,7 +322,7 @@
 @media (min-width: 580px) {
   .main-grid { grid-template-columns: 7fr 5fr; column-gap: 40px; align-items: start; }
   .right-col { margin-top: 0; }
-  .section-toggle-icon { display: none; }
+  .section-toggle { display: none; }
   .section-body { max-height: none !important; overflow: visible; opacity: 1 !important; }
   .timeline-body { padding-top: 20px; }
   .cards-section { margin-top: 32px; }

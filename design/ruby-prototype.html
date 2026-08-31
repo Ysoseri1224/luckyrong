@@ -166,15 +166,22 @@
   }
 
   /* ── collapsible section (no border) ── */
-  .section-toggle {
+  .section-heading {
     display: flex;
     align-items: center;
     justify-content: space-between;
+  }
+
+  .section-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
     cursor: pointer;
-    padding: 0;
+    padding: 8px;
     background: none;
     border: none;
-    width: 100%;
+    width: 32px;
+    height: 32px;
     text-align: left;
     margin-bottom: 0;
   }
@@ -183,8 +190,11 @@
     font-family: var(--serif);
     font-size: 15px;
     font-weight: 500;
-    color: var(--g900);
+    color: var(--r600);
+    text-decoration: none;
   }
+
+  .section-toggle-title:hover { color: var(--r700); }
 
   .section-toggle-icon {
     width: 16px;
@@ -466,7 +476,7 @@
 
   @media (min-width: 580px) {
     .mobile-divider { display: none; }
-    .section-toggle-icon { display: none; }
+    .section-toggle { display: none; }
     .section-body {
       max-height: none !important;
       opacity: 1 !important;
@@ -518,12 +528,14 @@
 
       <!-- timeline section -->
       <div class="timeline-section">
-        <button class="section-toggle open" id="timeline-toggle" aria-expanded="true">
-          <span class="section-toggle-title">Timeline</span>
-          <svg class="section-toggle-icon" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="18 15 12 9 6 15"/>
-          </svg>
-        </button>
+        <div class="section-heading">
+          <a class="section-toggle-title" href="/timeline/">Timeline</a>
+          <button class="section-toggle open" id="timeline-toggle" aria-label="折叠 Timeline" aria-expanded="true">
+            <svg class="section-toggle-icon" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="18 15 12 9 6 15"/>
+            </svg>
+          </button>
+        </div>
         <div class="section-body open" id="timeline-body">
           <div class="timeline-body">
             <div class="timeline-list">
