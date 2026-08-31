@@ -1,0 +1,4 @@
+url: "https://luckyrong.ysoseri.us"
+permalink: simple
+template_engine: erb
+destination: output

@@ -1,0 +1,695 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ruby</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;500;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:       #FAF8F8;
+    --card:     #F2EEEE;
+    --border:   #E0D8D8;
+    --g900:     #1A1414;
+    --g800:     #2D2424;
+    --g600:     #6B5F5F;
+    --g400:     #9E9090;
+    --g200:     #E0D8D8;
+    --r600:     #B22222;
+    --r400:     #D94444;
+    --serif:    'Noto Serif SC', serif;
+    --sans:     'Inter', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    font-family: var(--sans);
+    color: var(--g900);
+    min-height: 100vh;
+  }
+
+  .page {
+    max-width: 680px;
+    margin: 0 auto;
+    padding: 32px 20px 80px;
+  }
+
+  /* ── clock bar ── */
+  .clock-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 48px;
+  }
+
+  .clock-item { display: flex; align-items: baseline; gap: 10px; }
+  .clock-item:last-child { flex-direction: row-reverse; }
+
+  .clock-city {
+    font-size: 11px;
+    color: var(--g400);
+    letter-spacing: 0.04em;
+  }
+
+  .clock-time {
+    font-size: 28px;
+    font-weight: 300;
+    color: var(--g900);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ── main grid ── */
+  .main-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+
+  @media (min-width: 580px) {
+    .main-grid {
+      grid-template-columns: 7fr 5fr;
+      gap: 0 40px;
+      align-items: start;
+    }
+  }
+
+  /* ── left col ── */
+  .left-col {}
+
+  /* ── hero ── */
+  .hero {
+    padding-bottom: 40px;
+    margin-bottom: 40px;
+    border-bottom: 1px solid var(--g200);
+  }
+
+  .hero-label {
+    font-size: 11px;
+    color: var(--g400);
+    letter-spacing: 0.08em;
+    margin-bottom: 8px;
+  }
+
+  .hero-count {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    margin-bottom: 4px;
+  }
+
+  .hero-days {
+    font-family: var(--serif);
+    font-size: 56px;
+    font-weight: 700;
+    color: var(--g900);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .hero-unit {
+    font-family: var(--serif);
+    font-size: 24px;
+    font-weight: 400;
+    color: var(--g400);
+  }
+
+  .hero-hms {
+    font-size: 22px;
+    font-weight: 300;
+    color: var(--g400);
+    letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .next-meet {
+    margin-top: 28px;
+    display: flex;
+    align-items: baseline;
+    gap: 14px;
+  }
+
+  .next-label {
+    font-size: 11px;
+    color: var(--g400);
+    letter-spacing: 0.06em;
+    white-space: nowrap;
+  }
+
+  .next-days {
+    font-family: var(--serif);
+    font-size: 44px;
+    font-weight: 700;
+    color: var(--r600);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .next-unit {
+    font-family: var(--serif);
+    font-size: 20px;
+    font-weight: 400;
+    color: var(--r400);
+    margin-left: 6px;
+  }
+
+  .next-hms {
+    font-size: 20px;
+    font-weight: 300;
+    color: var(--r400);
+    letter-spacing: 0.04em;
+    font-variant-numeric: tabular-nums;
+    margin-left: 4px;
+  }
+
+  /* ── collapsible section (no border) ── */
+  .section-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    padding: 0;
+    background: none;
+    border: none;
+    width: 100%;
+    text-align: left;
+    margin-bottom: 0;
+  }
+
+  .section-toggle-title {
+    font-family: var(--serif);
+    font-size: 15px;
+    font-weight: 500;
+    color: var(--g900);
+  }
+
+  .section-toggle-icon {
+    width: 16px;
+    height: 16px;
+    color: var(--g400);
+    flex-shrink: 0;
+    transition: transform 0.25s ease;
+  }
+
+  .section-toggle.open .section-toggle-icon {
+    transform: rotate(180deg);
+  }
+
+  .section-body {
+    overflow: hidden;
+    max-height: 0;
+    transition: max-height 0.35s ease, opacity 0.25s ease;
+    opacity: 0;
+  }
+
+  .section-body.open {
+    max-height: 2000px;
+    opacity: 1;
+  }
+
+  /* ── timeline ── */
+  .timeline-section {
+    margin-bottom: 0;
+  }
+
+  .timeline-body {
+    padding-top: 24px;
+  }
+
+  .timeline-list {
+    position: relative;
+    padding-left: 20px;
+  }
+
+  .timeline-list::before {
+    content: '';
+    position: absolute;
+    left: 3px;
+    top: 6px;
+    bottom: 6px;
+    width: 1px;
+    background: var(--g200);
+  }
+
+  .timeline-item {
+    position: relative;
+    margin-bottom: 28px;
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+  }
+
+  .timeline-item:last-child { margin-bottom: 0; }
+
+  .timeline-dot {
+    position: absolute;
+    left: -20px;
+    top: 6px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--g200);
+    border: 1.5px solid var(--bg);
+    flex-shrink: 0;
+  }
+
+  .timeline-item.marked .timeline-dot {
+    background: var(--r600);
+  }
+
+  .timeline-photo {
+    width: 72px;
+    height: 72px;
+    border-radius: 6px;
+    background: var(--card);
+    flex-shrink: 0;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .timeline-photo img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .timeline-meta {
+    padding-top: 2px;
+  }
+
+  .timeline-date {
+    font-size: 11px;
+    color: var(--g400);
+    letter-spacing: 0.06em;
+    margin-bottom: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .timeline-desc {
+    font-family: var(--serif);
+    font-size: 13px;
+    color: var(--g800);
+    line-height: 1.6;
+  }
+
+  /* ── right col ── */
+  .right-col {
+    margin-top: 48px;
+  }
+
+  @media (min-width: 580px) {
+    .right-col { margin-top: 0; }
+  }
+
+  /* ── wishes ── */
+  .wishes {
+    padding-left: 14px;
+    border-left: 2px solid var(--r600);
+    margin-bottom: 40px;
+  }
+
+  .wishes-title {
+    font-family: var(--serif);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--r600);
+    margin-bottom: 16px;
+    letter-spacing: 0.04em;
+  }
+
+  .wish-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 9px 0;
+    cursor: pointer;
+    border-bottom: 1px solid var(--g200);
+  }
+
+  .wish-item:last-child { border-bottom: none; }
+
+  .wish-check {
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+    margin-top: 2px;
+    border: 1.5px solid var(--g400);
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.15s, border-color 0.15s;
+  }
+
+  .wish-item.done .wish-check {
+    background: var(--r600);
+    border-color: var(--r600);
+  }
+
+  .wish-check svg {
+    display: none;
+    width: 9px;
+    height: 9px;
+    stroke: white;
+    fill: none;
+    stroke-width: 2.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .wish-item.done .wish-check svg { display: block; }
+
+  .wish-text {
+    font-family: var(--serif);
+    font-size: 13px;
+    color: var(--g800);
+    line-height: 1.55;
+    transition: color 0.15s;
+  }
+
+  .wish-item.done .wish-text {
+    color: var(--g200);
+    text-decoration: line-through;
+    text-decoration-color: var(--g400);
+  }
+
+  /* ── cards section (mobile collapsible) ── */
+  .cards-section {
+    margin-top: 0;
+  }
+
+  .cards-body {
+    padding-top: 20px;
+  }
+
+  .module-cards {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .module-card {
+    background: var(--card);
+    border-radius: 10px;
+    padding: 16px 16px;
+    cursor: pointer;
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    transition: background 0.15s;
+  }
+
+  .module-card:hover { background: var(--border); }
+
+  .module-icon {
+    width: 32px;
+    height: 32px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--r600);
+  }
+
+  .module-icon svg {
+    width: 20px;
+    height: 20px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .module-text { flex: 1; }
+
+  .module-title {
+    font-family: var(--serif);
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--g900);
+    margin-bottom: 2px;
+  }
+
+  .module-sub {
+    font-size: 11px;
+    color: var(--g400);
+  }
+
+  .module-arrow {
+    color: var(--g200);
+    flex-shrink: 0;
+  }
+
+  .module-arrow svg {
+    width: 14px;
+    height: 14px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  /* mobile divider between sections */
+  .mobile-divider {
+    height: 1px;
+    background: var(--g200);
+    margin: 32px 0;
+  }
+
+  @media (min-width: 580px) {
+    .mobile-divider { display: none; }
+    .section-toggle-icon { display: none; }
+    .section-body {
+      max-height: none !important;
+      opacity: 1 !important;
+      overflow: visible;
+    }
+    .timeline-body { padding-top: 20px; }
+    .cards-body { padding-top: 20px; }
+    .cards-section { margin-top: 32px; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- clock bar -->
+  <div class="clock-bar">
+    <div class="clock-item">
+      <span class="clock-city">奥克兰</span>
+      <span class="clock-time" id="nz-time">--:--:--</span>
+    </div>
+    <div class="clock-item">
+      <span class="clock-time" id="cn-time">--:--:--</span>
+      <span class="clock-city">山东</span>
+    </div>
+  </div>
+
+  <!-- main grid -->
+  <div class="main-grid">
+
+    <!-- LEFT col: hero + timeline -->
+    <div class="left-col">
+
+      <!-- hero -->
+      <div class="hero">
+        <div class="hero-label">在一起</div>
+        <div class="hero-count">
+          <span class="hero-days" id="together-days">--</span>
+          <span class="hero-unit">天</span>
+        </div>
+        <div class="hero-hms" id="together-hms">--:--:--</div>
+
+        <div class="next-meet">
+          <span class="next-label">下次见面</span>
+          <span class="next-days" id="next-days">--</span>
+          <span class="next-unit">天</span>
+          <span class="next-hms" id="next-hms">--:--:--</span>
+        </div>
+      </div>
+
+      <!-- timeline section -->
+      <div class="timeline-section">
+        <button class="section-toggle open" id="timeline-toggle" aria-expanded="true">
+          <span class="section-toggle-title">Timeline</span>
+          <svg class="section-toggle-icon" viewBox="0 0 24 24" stroke="currentColor" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="18 15 12 9 6 15"/>
+          </svg>
+        </button>
+        <div class="section-body open" id="timeline-body">
+          <div class="timeline-body">
+            <div class="timeline-list">
+
+              <div class="timeline-item">
+                <div class="timeline-dot"></div>
+                <div class="timeline-photo">
+                  <img src="../src/images/timeline/202607.jpg" alt="2026 年 7 月的照片">
+                </div>
+                <div class="timeline-meta">
+                  <div class="timeline-date">2026 · 07</div>
+                </div>
+              </div>
+
+              <div class="timeline-item">
+                <div class="timeline-dot"></div>
+                <div class="timeline-photo">
+                  <img src="../src/images/timeline/202602.jpg" alt="2026 年 2 月的照片">
+                </div>
+                <div class="timeline-meta">
+                  <div class="timeline-date">2026 · 02</div>
+                </div>
+              </div>
+
+              <div class="timeline-item marked">
+                <div class="timeline-dot"></div>
+                <div class="timeline-photo">
+                  <img src="../src/images/timeline/202601.jpg" alt="2026 年 1 月第一次见面的照片">
+                </div>
+                <div class="timeline-meta">
+                  <div class="timeline-date">2026 · 01</div>
+                  <div class="timeline-desc">第一次见面</div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- RIGHT col: wishes + cards -->
+    <div class="right-col">
+
+      <!-- wishes -->
+      <div class="wishes">
+        <div class="wishes-title">共同心愿</div>
+        <div id="wish-list"></div>
+      </div>
+
+      <!-- cards section -->
+      <div class="cards-section">
+        <div class="module-cards">
+
+              <a class="module-card" href="#">
+                <div class="module-icon">
+                  <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                </div>
+                <div class="module-text">
+                  <div class="module-title">Together Time</div>
+                  <div class="module-sub">时差日程与纪念记录</div>
+                </div>
+                <div class="module-arrow">
+                  <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+                </div>
+              </a>
+
+              <a class="module-card" href="#">
+                <div class="module-icon">
+                  <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                </div>
+                <div class="module-text">
+                  <div class="module-title">CET6 Camp</div>
+                  <div class="module-sub">六级备考计划与资源</div>
+                </div>
+                <div class="module-arrow">
+                  <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>
+                </div>
+              </a>
+
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  const TOGETHER_START = new Date('2026-01-25T21:36:00+08:00');
+  const NEXT_MEET      = new Date('2026-12-11T00:00:00+08:00');
+
+  const wishes = [
+    '长白山·长相守，共白头',
+    '徐州逛吃嘻嘻',
+    '买花，做成冰箱贴～',
+    '坐一次双层火车的大床卧铺，去大理',
+    '每年都要拍一张红底照片！'
+  ];
+
+  const checked = new Set();
+
+  function pad(n) { return String(Math.floor(n)).padStart(2, '0'); }
+
+  function formatHMS(s) {
+    return `${pad(s/3600)}:${pad((s%3600)/60)}:${pad(s%60)}`;
+  }
+
+  function tick() {
+    const now = new Date();
+    const nzH = (now.getUTCHours() + 12) % 24;
+    const cnH = (now.getUTCHours() + 8)  % 24;
+    const mn  = now.getUTCMinutes();
+    const sc  = now.getUTCSeconds();
+    document.getElementById('nz-time').textContent = `${pad(nzH)}:${pad(mn)}:${pad(sc)}`;
+    document.getElementById('cn-time').textContent = `${pad(cnH)}:${pad(mn)}:${pad(sc)}`;
+
+    const ts = Math.floor((now - TOGETHER_START) / 1000);
+    document.getElementById('together-days').textContent = Math.floor(ts / 86400);
+    document.getElementById('together-hms').textContent  = formatHMS(ts % 86400);
+
+    const ns = Math.floor((NEXT_MEET - now) / 1000);
+    if (ns > 0) {
+      document.getElementById('next-days').textContent = Math.floor(ns / 86400);
+      document.getElementById('next-hms').textContent  = formatHMS(ns % 86400);
+    } else {
+      document.getElementById('next-days').textContent = '0';
+      document.getElementById('next-hms').textContent  = '今天';
+    }
+  }
+
+  function renderWishes() {
+    const list = document.getElementById('wish-list');
+    list.innerHTML = '';
+    wishes.forEach((w, i) => {
+      const done = checked.has(i);
+      const el = document.createElement('div');
+      el.className = 'wish-item' + (done ? ' done' : '');
+      el.innerHTML = `
+        <div class="wish-check">
+          <svg viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3"/></svg>
+        </div>
+        <span class="wish-text">${w}</span>`;
+      el.addEventListener('click', () => {
+        checked.has(i) ? checked.delete(i) : checked.add(i);
+        renderWishes();
+      });
+      list.appendChild(el);
+    });
+  }
+
+  function initToggle(btnId, bodyId) {
+    const btn  = document.getElementById(btnId);
+    const body = document.getElementById(bodyId);
+    btn.addEventListener('click', () => {
+      const isOpen = btn.classList.contains('open');
+      btn.classList.toggle('open', !isOpen);
+      btn.setAttribute('aria-expanded', String(!isOpen));
+      body.classList.toggle('open', !isOpen);
+    });
+  }
+
+  renderWishes();
+  tick();
+  setInterval(tick, 1000);
+  initToggle('timeline-toggle', 'timeline-body');
+</script>
+</body>
+</html>

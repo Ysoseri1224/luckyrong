@@ -1,0 +1,126 @@
+---
+layout: default
+title: Ruby
+---
+
+<main class="ruby-page">
+  <div class="clock-bar" aria-label="双城时间">
+    <div class="clock-item">
+      <span class="clock-city">奥克兰</span>
+      <time class="clock-time" id="nz-time" datetime="">--:--:--</time>
+    </div>
+    <div class="clock-item clock-item-reverse">
+      <time class="clock-time" id="cn-time" datetime="">--:--:--</time>
+      <span class="clock-city">山东</span>
+    </div>
+  </div>
+
+  <div class="main-grid">
+    <div class="left-col">
+      <section class="hero" aria-labelledby="together-label">
+        <p class="hero-label" id="together-label">在一起</p>
+        <div class="hero-count">
+          <span class="hero-days" id="together-days">--</span>
+          <span class="hero-unit">天</span>
+        </div>
+        <p class="hero-hms" id="together-hms">--:--:--</p>
+
+        <button class="next-meet" id="meet-counter" type="button" title="点击设置见面日期">
+          <span class="next-label">下次见面</span>
+          <span class="next-value">
+            <span class="next-days" id="next-days">--</span>
+            <span class="next-unit">天</span>
+            <span class="next-hms" id="next-hms">--:--:--</span>
+          </span>
+        </button>
+      </section>
+
+      <section class="timeline-section" aria-labelledby="timeline-title">
+        <button class="section-toggle open" id="timeline-toggle" type="button" aria-expanded="true" aria-controls="timeline-body">
+          <span class="section-toggle-title" id="timeline-title">Timeline</span>
+          <svg class="section-toggle-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <polyline points="18 15 12 9 6 15" />
+          </svg>
+        </button>
+        <div class="section-body open" id="timeline-body">
+          <div class="timeline-body">
+            <div class="timeline-list">
+              <% site.data.timeline_preview.each do |item| %>
+                <a class="timeline-item<%= item.marked ? ' marked' : '' %>" href="/timeline/">
+                  <span class="timeline-dot" aria-hidden="true"></span>
+                  <span class="timeline-photo">
+                    <img src="<%= item.image %>" alt="<%= item.alt %>" loading="lazy" decoding="async">
+                  </span>
+                  <span class="timeline-meta">
+                    <time class="timeline-date" datetime="<%= item.datetime %>"><%= item.date %></time>
+                    <% if item.description %>
+                      <span class="timeline-desc"><%= item.description %></span>
+                    <% end %>
+                  </span>
+                </a>
+              <% end %>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div class="right-col">
+      <section class="wishes" aria-labelledby="wishes-title">
+        <h2 class="wishes-title" id="wishes-title">共同心愿</h2>
+        <div id="wish-list">
+          <% site.data.wishes.each_with_index do |wish, index| %>
+            <button class="wish-item" type="button" data-wish-index="<%= index %>" aria-pressed="false">
+              <span class="wish-check" aria-hidden="true">
+                <svg viewBox="0 0 12 12"><polyline points="2 6 5 9 10 3" /></svg>
+              </span>
+              <span class="wish-text"><%= wish %></span>
+            </button>
+          <% end %>
+        </div>
+      </section>
+
+      <section class="cards-section" aria-label="模块入口">
+        <div class="module-cards">
+          <% site.data.modules.each do |mod| %>
+            <a class="module-card" href="<%= mod.href %>">
+              <span class="module-icon" aria-hidden="true">
+                <% if mod.icon == 'heart' %>
+                  <svg viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" /></svg>
+                <% else %>
+                  <svg viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" /></svg>
+                <% end %>
+              </span>
+              <span class="module-text">
+                <span class="module-title"><%= mod.title %></span>
+                <span class="module-sub"><%= mod.subtitle %></span>
+              </span>
+              <span class="module-arrow" aria-hidden="true">
+                <svg viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6" /></svg>
+              </span>
+            </a>
+          <% end %>
+        </div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<dialog id="meet-dialog" class="meet-dialog">
+  <form method="dialog" id="meet-form">
+    <h2>设置下次见面日期</h2>
+    <div class="date-grid date-grid-three">
+      <label><span>年</span><select id="meet-year"></select></label>
+      <label><span>月</span><select id="meet-month"></select></label>
+      <label><span>日</span><select id="meet-day"></select></label>
+    </div>
+    <div class="date-grid date-grid-two">
+      <label><span>时</span><select id="meet-hour"></select></label>
+      <label><span>分</span><select id="meet-minute"></select></label>
+    </div>
+    <div class="dialog-actions">
+      <button type="submit" id="meet-save">保存</button>
+      <button type="button" id="meet-cancel">取消</button>
+    </div>
+  </form>
+</dialog>
