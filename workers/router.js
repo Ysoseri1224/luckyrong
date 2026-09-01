@@ -231,6 +231,18 @@ export default {
       return new Response(response.body, { status: response.status, headers: response.headers });
     }
 
+    if (url.pathname === '/kb') {
+      return Response.redirect(`${url.origin}/kb/${url.search}`, 308);
+    }
+
+    if (url.pathname.startsWith('/kb/')) {
+      const path = url.pathname.slice('/kb'.length) || '/';
+      const kbOrigin = env.KB_ORIGIN || 'https://ysoseri-kb.workers.dev';
+      const targetUrl = `${kbOrigin}${path}${url.search}`;
+      const response = await fetch(targetUrl, { method: request.method, headers: request.headers, body: ['GET', 'HEAD'].includes(request.method) ? undefined : request.body });
+      return new Response(response.body, { status: response.status, headers: response.headers });
+    }
+
     if (url.pathname.startsWith('/together')) {
       const path = url.pathname.replace('/together', '') || '/';
       const targetUrl = `https://together-time.pages.dev${path}${url.search}`;

@@ -24,3 +24,4 @@ bucket_name = "timeline-media"
 
 [vars]
 JWT_SECRET = "together-time-luckyrong-2026"
+KB_ORIGIN = "https://ysoseri-kb.zwei974.workers.dev"

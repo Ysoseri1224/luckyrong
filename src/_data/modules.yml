@@ -6,3 +6,7 @@
   title: "CET6 Camp"
   subtitle: "六级备考计划与资源"
   icon: "book"
+- href: "/kb/"
+  title: "私人知识库"
+  subtitle: "可检索的原子间势函数资料库"
+  icon: "library"
