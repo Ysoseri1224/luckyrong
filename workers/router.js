@@ -257,7 +257,9 @@ export default {
       return new Response(response.body, { status: response.status, headers: response.headers });
     }
 
-    const targetUrl = `https://luckyrong.pages.dev${url.pathname}${url.search}`;
+    // Pages 对根路径保留了较长缓存；直接取明确文件可确保新部署的首页即时可见。
+    const pagePath = url.pathname === '/' ? '/index.html' : url.pathname;
+    const targetUrl = `https://luckyrong.pages.dev${pagePath}${url.search}`;
     const response = await fetch(targetUrl, { method: request.method, headers: request.headers });
     return new Response(response.body, { status: response.status, headers: response.headers });
   },
