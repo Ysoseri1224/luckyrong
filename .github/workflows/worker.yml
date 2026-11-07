@@ -3,7 +3,14 @@ name: Worker luckyrong-router
 # check  : read-only. Downloads the live Worker, bundles the repo version the same way,
 #          and prints the difference plus live bindings/routes. Changes nothing.
 # deploy : runs check, ensures the timeline D1 tables, deploys, then smoke-tests.
+# A push to master that touches the Worker deploys automatically.
 on:
+  push:
+    branches: [master]
+    paths:
+      - "workers/**"
+      - "wrangler.toml"
+      - ".github/workflows/worker.yml"
   workflow_dispatch:
     inputs:
       mode:
@@ -103,7 +110,7 @@ jobs:
 
   deploy:
     needs: check
-    if: inputs.mode == 'deploy'
+    if: github.event_name == 'push' || inputs.mode == 'deploy'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
