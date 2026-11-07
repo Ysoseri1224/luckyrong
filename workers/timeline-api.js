@@ -14,17 +14,79 @@ const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 class HttpError extends Error {
-  constructor(status, message) {
+  constructor(status, message, extra = null) {
     super(message);
     this.status = status;
+    this.extra = extra;
   }
+}
+
+// --- offline sync support -------------------------------------------------
+// Idempotency-Key: a retried POST/PUT/DELETE (e.g. response lost on a flaky
+// airport network) returns the stored first result instead of running again.
+// X-If-Updated-At: the updated_at the client based its edit on; a mismatch
+// returns 409 with the current row so the client can ask which version to keep.
+const IDEMPOTENCY_KEY = /^[A-Za-z0-9_-]{8,80}$/;
+const UPLOAD_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const IDEMPOTENCY_TABLE = `CREATE TABLE IF NOT EXISTS timeline_idempotency (
+  key TEXT PRIMARY KEY, status INTEGER NOT NULL, body TEXT NOT NULL,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')))`;
+
+async function idempotencyLookup(env, key) {
+  try {
+    return await env.TIMELINE_DB.prepare('SELECT status, body FROM timeline_idempotency WHERE key = ?').bind(key).first();
+  } catch (error) {
+    if (!String(error).includes('no such table')) throw error;
+    await env.TIMELINE_DB.prepare(IDEMPOTENCY_TABLE).run();
+    return null;
+  }
+}
+
+async function withIdempotency(request, env, handler) {
+  const key = request.headers.get('Idempotency-Key');
+  if (!key) return handler();
+  if (!IDEMPOTENCY_KEY.test(key)) throw new HttpError(400, 'Idempotency-Key 格式无效');
+  await requireEditor(request, env);
+  const stored = await idempotencyLookup(env, key);
+  if (stored) return jsonResponse(JSON.parse(stored.body), stored.status, { 'Idempotent-Replayed': 'true' });
+  const response = await handler();
+  if (response.status >= 200 && response.status < 300) {
+    const body = await response.clone().text();
+    await env.TIMELINE_DB.batch([
+      env.TIMELINE_DB.prepare('INSERT OR IGNORE INTO timeline_idempotency (key, status, body) VALUES (?, ?, ?)').bind(key, response.status, body),
+      env.TIMELINE_DB.prepare("DELETE FROM timeline_idempotency WHERE created_at < datetime('now', '-60 days')"),
+    ]);
+  }
+  return response;
+}
+
+function expectedUpdatedAt(request) {
+  const value = request.headers.get('X-If-Updated-At');
+  return value ? value.slice(0, 40) : null;
+}
+
+function conflict(current) {
+  return new HttpError(409, '线上版本已经变化', { code: 'conflict', current });
+}
+
+// R2 objects are deleted only when no remaining event still lists them
+// (an offline "keep both" copy can share media with the original).
+async function unreferencedKeys(env, keys) {
+  const result = [];
+  for (const key of keys) {
+    // instr(), not LIKE: D1 rejects LIKE patterns this long
+    const count = await env.TIMELINE_DB.prepare('SELECT COUNT(*) AS count FROM timeline_events WHERE instr(media, ?) > 0')
+      .bind(`"key":${JSON.stringify(key)}`).first('count');
+    if (Number(count) === 0) result.push(key);
+  }
+  return result;
 }
 
 function timelineHeaders(extra = {}) {
   return {
     'Access-Control-Allow-Origin': TIMELINE_ORIGIN,
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Filename',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Filename, X-Upload-Id, Idempotency-Key, X-If-Updated-At',
     'Access-Control-Max-Age': '86400',
     'X-Content-Type-Options': 'nosniff',
     ...extra,
@@ -493,14 +555,24 @@ async function createEvent(request, env) {
 async function updateEvent(request, env, eventId) {
   await requireEditor(request, env);
   const existing = await loadEvent(env, eventId);
-  if (!existing) throw new HttpError(404, '事件不存在');
+  if (!existing) throw new HttpError(404, '事件不存在', { code: 'not_found' });
+  const expected = expectedUpdatedAt(request);
+  if (expected && existing.updated_at !== expected) throw conflict(existing);
   const draft = eventDraft(await readJson(request));
   await ensureAxesExist(env, draft.axisIds);
+  // Every statement re-checks the version inside the same D1 transaction, so a
+  // concurrent edit between the read above and this batch changes nothing.
+  const guard = expected ? 'EXISTS (SELECT 1 FROM timeline_events WHERE id = ? AND updated_at = ?)' : '1 = 1';
+  const guardArgs = expected ? [eventId, expected] : [];
   const statements = [
+    env.TIMELINE_DB.prepare(`DELETE FROM timeline_event_axes WHERE event_id = ? AND ${guard}`).bind(eventId, ...guardArgs),
+    ...draft.axisIds.map((axisId) => env.TIMELINE_DB
+      .prepare(`INSERT INTO timeline_event_axes (event_id, axis_id) SELECT ?, ? WHERE ${guard}`)
+      .bind(eventId, axisId, ...guardArgs)),
     env.TIMELINE_DB.prepare(`
       UPDATE timeline_events
       SET type = ?, title = ?, subtitle = ?, description = ?, event_date = ?, color = ?, media = ?, cover_media_key = ?, updated_at = datetime('now')
-      WHERE id = ?
+      WHERE id = ?${expected ? ' AND updated_at = ?' : ''}
     `).bind(
       draft.type,
       draft.title,
@@ -511,14 +583,18 @@ async function updateEvent(request, env, eventId) {
       JSON.stringify(draft.media),
       draft.coverMediaKey,
       eventId,
+      ...(expected ? [expected] : []),
     ),
-    env.TIMELINE_DB.prepare('DELETE FROM timeline_event_axes WHERE event_id = ?').bind(eventId),
-    ...draft.axisIds.map((axisId) => env.TIMELINE_DB.prepare('INSERT INTO timeline_event_axes (event_id, axis_id) VALUES (?, ?)').bind(eventId, axisId)),
   ];
-  await env.TIMELINE_DB.batch(statements);
+  const results = await env.TIMELINE_DB.batch(statements);
+  if (Number(results[results.length - 1]?.meta?.changes || 0) === 0) {
+    const current = await loadEvent(env, eventId);
+    if (!current) throw new HttpError(404, '事件不存在', { code: 'not_found' });
+    throw conflict(current);
+  }
 
   const retainedKeys = new Set(draft.media.map((item) => item.key));
-  const removedKeys = existing.media.map((item) => item.key).filter((key) => !retainedKeys.has(key));
+  const removedKeys = await unreferencedKeys(env, existing.media.map((item) => item.key).filter((key) => !retainedKeys.has(key)));
   if (removedKeys.length > 0) await env.TIMELINE_MEDIA.delete(removedKeys);
   return jsonResponse({ event: await loadEvent(env, eventId) });
 }
@@ -526,12 +602,22 @@ async function updateEvent(request, env, eventId) {
 async function removeEvent(request, env, eventId) {
   await requireEditor(request, env);
   const existing = await loadEvent(env, eventId);
-  if (!existing) throw new HttpError(404, '事件不存在');
-  await env.TIMELINE_DB.batch([
-    env.TIMELINE_DB.prepare('DELETE FROM timeline_event_axes WHERE event_id = ?').bind(eventId),
-    env.TIMELINE_DB.prepare('DELETE FROM timeline_events WHERE id = ?').bind(eventId),
+  if (!existing) throw new HttpError(404, '事件不存在', { code: 'not_found' });
+  const expected = expectedUpdatedAt(request);
+  if (expected && existing.updated_at !== expected) throw conflict(existing);
+  const guard = expected ? ' AND EXISTS (SELECT 1 FROM timeline_events WHERE id = ? AND updated_at = ?)' : '';
+  const guardArgs = expected ? [eventId, expected] : [];
+  const results = await env.TIMELINE_DB.batch([
+    env.TIMELINE_DB.prepare(`DELETE FROM timeline_event_axes WHERE event_id = ?${guard}`).bind(eventId, ...guardArgs),
+    env.TIMELINE_DB.prepare(`DELETE FROM timeline_events WHERE id = ?${expected ? ' AND updated_at = ?' : ''}`)
+      .bind(eventId, ...(expected ? [expected] : [])),
   ]);
-  const keys = existing.media.map((item) => item.key);
+  if (Number(results[1]?.meta?.changes || 0) === 0) {
+    const current = await loadEvent(env, eventId);
+    if (!current) throw new HttpError(404, '事件不存在', { code: 'not_found' });
+    throw conflict(current);
+  }
+  const keys = await unreferencedKeys(env, existing.media.map((item) => item.key));
   if (keys.length > 0) await env.TIMELINE_MEDIA.delete(keys);
   return jsonResponse({ ok: true });
 }
@@ -546,8 +632,8 @@ async function login(request, env) {
 }
 
 async function verifySession(request, env) {
-  await requireEditor(request, env);
-  return jsonResponse({ ok: true });
+  const payload = await requireEditor(request, env);
+  return jsonResponse({ ok: true, exp: payload.exp });
 }
 
 function safeFilename(headerValue) {
@@ -569,7 +655,11 @@ async function uploadMedia(request, env) {
   if (!mediaType) throw new HttpError(415, '仅支持 JPG、PNG、WebP、AVIF、MP4 或 WebM');
   const originalName = safeFilename(request.headers.get('X-Filename'));
   const now = new Date();
-  const key = `timeline/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${crypto.randomUUID()}.${mediaType.extension}`;
+  // A client-chosen X-Upload-Id makes a retried upload overwrite the same object
+  // instead of leaving a duplicate behind.
+  const uploadId = request.headers.get('X-Upload-Id');
+  if (uploadId && !UPLOAD_ID.test(uploadId)) throw new HttpError(400, 'X-Upload-Id 格式无效');
+  const key = `timeline/${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, '0')}/${(uploadId || crypto.randomUUID()).toLowerCase()}.${mediaType.extension}`;
   await env.TIMELINE_MEDIA.put(key, request.body, {
     httpMetadata: {
       contentType,
@@ -665,14 +755,14 @@ async function routeTimelineApi(request, env) {
 
   if (path === '/timeline/api/events') {
     if (request.method === 'GET') return getEvents(request, env);
-    if (request.method === 'POST') return createEvent(request, env);
+    if (request.method === 'POST') return withIdempotency(request, env, () => createEvent(request, env));
     return methodNotAllowed();
   }
   const eventMatch = path.match(/^\/timeline\/api\/events\/(\d+)$/);
   if (eventMatch) {
     const eventId = Number(eventMatch[1]);
-    if (request.method === 'PUT') return updateEvent(request, env, eventId);
-    if (request.method === 'DELETE') return removeEvent(request, env, eventId);
+    if (request.method === 'PUT') return withIdempotency(request, env, () => updateEvent(request, env, eventId));
+    if (request.method === 'DELETE') return withIdempotency(request, env, () => removeEvent(request, env, eventId));
     return methodNotAllowed();
   }
 
@@ -683,7 +773,7 @@ export async function handleTimelineApi(request, env) {
   try {
     return await routeTimelineApi(request, env);
   } catch (error) {
-    if (error instanceof HttpError) return jsonResponse({ error: error.message }, error.status);
+    if (error instanceof HttpError) return jsonResponse({ error: error.message, ...(error.extra || {}) }, error.status);
     console.error(JSON.stringify({
       message: 'timeline api request failed',
       path: new URL(request.url).pathname,
