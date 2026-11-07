@@ -1,0 +1,134 @@
+name: Worker luckyrong-router
+
+# check  : read-only. Downloads the live Worker, bundles the repo version the same way,
+#          and prints the difference plus live bindings/routes. Changes nothing.
+# deploy : runs check, ensures the timeline D1 tables, deploys, then smoke-tests.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: check = compare only; deploy = compare + deploy
+        type: choice
+        options: [check, deploy]
+        default: check
+
+permissions:
+  contents: read
+
+concurrency:
+  group: luckyrong-worker
+  cancel-in-progress: false
+
+env:
+  # CF_WORKERS_TOKEN (if added) needs Workers Scripts:Edit, Workers Routes:Edit, D1:Edit.
+  CLOUDFLARE_API_TOKEN: ${{ secrets.CF_WORKERS_TOKEN || secrets.CLOUDFLARE_API_TOKEN }}
+  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+  SCRIPT: luckyrong-router
+  WRANGLER: npx --yes wrangler@4.158.0
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Token
+        run: |
+          echo "using: ${{ secrets.CF_WORKERS_TOKEN != '' && 'CF_WORKERS_TOKEN' || 'CLOUDFLARE_API_TOKEN' }}"
+          curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" https://api.cloudflare.com/client/v4/user/tokens/verify | jq '{success, status: .result.status, errors}'
+
+      - name: Live bindings and settings
+        run: |
+          API="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$SCRIPT"
+          curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$API/settings" > settings.json
+          jq '{success, errors, compatibility_date: .result.compatibility_date, compatibility_flags: .result.compatibility_flags,
+               bindings: [.result.bindings[]? | {name, type}]}' settings.json
+          echo "--- repo wrangler.toml bindings"
+          grep -E '^(binding|bucket_name|database_name|[A-Z_]+ =)' wrangler.toml | sed -E 's/(JWT_SECRET = ).*/\1(hidden)/'
+
+      - name: Live routes
+        run: |
+          Z=$(curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/zones?name=ysoseri.us" | jq -r '.result[0].id // empty')
+          if [ -z "$Z" ]; then echo "(token cannot read zone; skipped)"; exit 0; fi
+          curl -sS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "https://api.cloudflare.com/client/v4/zones/$Z/workers/routes" \
+            | jq -c '.result[]? | {pattern, script}'
+
+      - name: Live script vs repo bundle
+        run: |
+          set -euo pipefail
+          mkdir -p cmp/live cmp/repo
+          API="https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$SCRIPT"
+          code=$(curl -sS -o cmp/live.multipart -w '%{http_code}' -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" "$API")
+          echo "download: HTTP $code, $(wc -c < cmp/live.multipart) bytes"
+          test "$code" = 200
+          # split the multipart body into its parts
+          python3 - <<'PY'
+          import email, pathlib
+          raw = pathlib.Path('cmp/live.multipart').read_bytes()
+          boundary = raw.split(b'\r\n', 1)[0][2:]
+          msg = email.message_from_bytes(b'Content-Type: multipart/form-data; boundary=' + boundary + b'\r\n\r\n' + raw)
+          for part in msg.walk():
+              if part.is_multipart(): continue
+              name = part.get_param('filename', header='content-disposition') or part.get_param('name', header='content-disposition') or 'part'
+              out = pathlib.Path('cmp/live') / pathlib.Path(name).name
+              out.write_bytes(part.get_payload(decode=True))
+              print('live part:', out, out.stat().st_size, 'bytes')
+          PY
+          $WRANGLER deploy --dry-run --outdir cmp/repo > /dev/null
+          ls -la cmp/repo
+          live=$(ls cmp/live/*.js | head -n1)
+          repo=$(ls cmp/repo/*.js | head -n1)
+          # strip wrangler banners / source-map comments before comparing
+          norm() { sed -E '/^\/\/ (#|node_modules|workers\/|\.wrangler)/d; /sourceMappingURL/d; /^\s*$/d' "$1"; }
+          norm "$live" > cmp/live.norm.js
+          norm "$repo" > cmp/repo.norm.js
+          if diff -u cmp/live.norm.js cmp/repo.norm.js > cmp/diff.txt; then
+            echo "IDENTICAL: live Worker matches the repo"
+          else
+            echo "DIFFERENT: $(grep -c '^[-+][^-+]' cmp/diff.txt) changed lines (- live, + repo)"
+            head -n 400 cmp/diff.txt
+          fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: worker-compare
+          path: |
+            cmp/live
+            cmp/repo
+            cmp/diff.txt
+
+  deploy:
+    needs: check
+    if: inputs.mode == 'deploy'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Timeline D1 — idempotency table
+        run: |
+          $WRANGLER d1 execute timeline --remote --command \
+            "CREATE TABLE IF NOT EXISTS timeline_idempotency (key TEXT PRIMARY KEY, status INTEGER NOT NULL, body TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')));"
+
+      - name: Deploy
+        run: $WRANGLER deploy || (sleep 10 && $WRANGLER deploy)
+
+      - name: Smoke test
+        run: |
+          sleep 10
+          B=https://luckyrong.ysoseri.us
+          fail=0
+          for t in "/|200" "/timeline/|200" "/timeline/api/axes|200" "/timeline/api/session|401"; do
+            p=${t%|*}; want=${t#*|}
+            got=$(curl -sS -o /tmp/body -w '%{http_code}' --max-time 20 "$B$p")
+            echo "$p -> $got (want $want)"; [ "$got" = "$want" ] || fail=1
+          done
+          curl -sS "$B/timeline/api/axes" | jq -e '.axes | length > 0' > /dev/null && echo "axes JSON ok" || fail=1
+          curl -sS "$B/timeline/api/events?limit=1" | jq -e '.events | type == "array"' > /dev/null && echo "events JSON ok" || fail=1
+          exit $fail
